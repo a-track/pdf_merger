@@ -1,0 +1,47 @@
+# PyInstaller build files
+build/
+dist/
+*.spec
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Test files
+test/
+tests/
+*.pdf
+*.ico
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
