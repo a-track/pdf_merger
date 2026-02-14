@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PDF Merger</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -26,6 +27,7 @@
       opacity: 0.4;
       background: #f1f5f9;
     }
+
     .stack-card {
       box-shadow:
         0 4px 6px -1px rgb(0 0 0 / 0.1),
@@ -34,19 +36,24 @@
       margin-right: 8px;
       margin-bottom: 8px;
     }
+
     @keyframes spin {
-      to { transform: rotate(360deg); }
+      to {
+        transform: rotate(360deg);
+      }
     }
+
     .animate-spin-custom {
       animation: spin 1s linear infinite;
     }
 
     .app-drag-over .global-dim {
-      border-color: rgba(99,102,241,0.6) !important;
-      background-color: rgba(99,102,241,0.03) !important;
+      border-color: rgba(99, 102, 241, 0.6) !important;
+      background-color: rgba(99, 102, 241, 0.03) !important;
     }
   </style>
 </head>
+
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen">
   <div class="max-w-6xl mx-auto p-8">
     <header class="text-center mb-12">
@@ -111,18 +118,32 @@
 
       <div
         class="sticky bottom-8 bg-white p-6 rounded-xl shadow-lg border border-slate-200 flex justify-between items-center z-20">
-        <div class="flex items-center gap-4">
-          <label for="output-filename" class="font-medium text-slate-700">Filename:</label>
-          <div class="relative">
-            <input type="text" id="output-filename" placeholder="merged"
-              class="pl-4 pr-12 py-2 border border-slate-200 rounded-md text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-64">
-            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">.pdf</span>
+        <div class="flex items-center gap-6">
+          <div class="flex items-center gap-2">
+            <div class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="unify-pages-checkbox" class="sr-only peer" checked>
+              <div
+                class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
+              </div>
+            </div>
+            <label for="unify-pages-checkbox"
+              class="text-sm font-medium text-slate-700 cursor-pointer select-none">Unify Page Sizes</label>
+          </div>
+          <div class="h-6 w-px bg-slate-200"></div>
+          <div class="flex items-center gap-4">
+            <label for="output-filename" class="font-medium text-slate-700">Filename:</label>
+            <div class="relative">
+              <input type="text" id="output-filename" placeholder="merged"
+                class="pl-4 pr-12 py-2 border border-slate-200 rounded-md text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-64">
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">.pdf</span>
+            </div>
           </div>
         </div>
         <button id="merge-btn"
-          class="inline-flex items-center gap-2 px-6 py-3 rounded-md font-medium transition-colors bg-indigo-600 text-white hover:bg-indigo-700 text-lg shadow-md hover:shadow-lg">
+          class="inline-flex items-center gap-2 px-6 py-3 rounded-md font-medium transition-colors bg-indigo-600 text-white hover:bg-indigo-700 text-lg shadow-md hover:shadow-lg whitespace-nowrap">
           <i data-lucide="file-down" class="w-5 h-5"></i> Merge & Download
         </button>
+
       </div>
 
       <div class="mt-12 mb-8 bg-green-50 border border-green-200 rounded-xl p-6 text-center">
@@ -175,6 +196,7 @@
     const resetBtn = document.getElementById('reset-btn');
     const mergeBtn = document.getElementById('merge-btn');
     const outputFilenameInput = document.getElementById('output-filename');
+    const unifyPagesCheckbox = document.getElementById('unify-pages-checkbox');
     const loader = document.getElementById('loader');
     const loaderText = document.getElementById('loader-text');
     const pageCountSpan = document.getElementById('page-count');
@@ -224,6 +246,7 @@
 
     function handleDrop(e) {
       e.preventDefault();
+      e.stopPropagation();
       dropZone.classList.remove('border-indigo-500', 'bg-indigo-50');
       document.body.classList.remove('app-drag-over');
       if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
@@ -520,20 +543,114 @@
       if (pages.length === 0) return;
       showLoader('Merging PDFs...');
       try {
-        const { PDFDocument, degrees } = PDFLib;
+        const { PDFDocument, degrees, PageSizes } = PDFLib;
         const mergedPdf = await PDFDocument.create();
         const loadedDocs = new Map();
+        const shouldUnify = unifyPagesCheckbox.checked;
+
+        let targetWidth, targetHeight;
+
+        // If unifying, determine target dimensions from the first page
+        if (shouldUnify && pages.length > 0) {
+          let firstPage = pages[0];
+          let firstDoc = loadedDocs.get(firstPage.fileId);
+          if (!firstDoc) {
+            firstDoc = await PDFDocument.load(firstPage.fileBuffer);
+            loadedDocs.set(firstPage.fileId, firstDoc);
+          }
+          const firstPdfPage = firstDoc.getPages()[firstPage.pageIndex];
+          const { width, height } = firstPdfPage.getSize();
+          const firstRotation = firstPdfPage.getRotation().angle;
+          const firstTotalRotation = (firstRotation + firstPage.rotation) % 360;
+
+          // If the first page is rotated 90 or 270 degrees, swap target dimensions
+          if (firstTotalRotation === 90 || firstTotalRotation === 270) {
+            targetWidth = height;
+            targetHeight = width;
+          } else {
+            targetWidth = width;
+            targetHeight = height;
+          }
+        }
+
         for (const page of pages) {
           let srcDoc = loadedDocs.get(page.fileId);
           if (!srcDoc) {
             srcDoc = await PDFDocument.load(page.fileBuffer);
             loadedDocs.set(page.fileId, srcDoc);
           }
-          const [copiedPage] = await mergedPdf.copyPages(srcDoc, [page.pageIndex]);
-          if (page.rotation !== 0) {
-            copiedPage.setRotation(degrees(page.rotation));
+
+          if (shouldUnify) {
+            const srcPage = srcDoc.getPages()[page.pageIndex];
+            // Get original rotation from source page metadata (Clockwise)
+            const originalRotation = srcPage.getRotation().angle;
+            // Combine with user's manual rotation from UI (also adding Clockwise steps)
+            // Result is total Clockwise rotation required for View.
+            // But pdf-lib drawPage 'rotate' expects Counter-Clockwise angle.
+            // So 90 CW = 270 CCW.
+            const totalRotationCW = (originalRotation + page.rotation) % 360;
+            const rotationCCW = (360 - totalRotationCW) % 360;
+
+            const [embeddedPage] = await mergedPdf.embedPdf(srcDoc, [page.pageIndex]);
+            const newPage = mergedPdf.addPage([targetWidth, targetHeight]);
+
+            const rawWidth = embeddedPage.width;
+            const rawHeight = embeddedPage.height;
+
+            let visualWidth, visualHeight;
+
+            // Calculate visual dimensions based on rotation (90 or 270 deg swap W/H)
+            if (rotationCCW === 90 || rotationCCW === 270) {
+              visualWidth = rawHeight;
+              visualHeight = rawWidth;
+            } else {
+              visualWidth = rawWidth;
+              visualHeight = rawHeight;
+            }
+
+            // Calculate scaling to fit visual dimensions into target page
+            const scale = Math.min(targetWidth / visualWidth, targetHeight / visualHeight);
+
+            const scaledWidth = rawWidth * scale; // Width in local unrotated coords
+            const scaledHeight = rawHeight * scale; // Height in local unrotated coords
+
+            // Calculate centered position for the visual bounding box
+            const destX = (targetWidth - visualWidth * scale) / 2;
+            const destY = (targetHeight - visualHeight * scale) / 2;
+
+            let drawOptions = {
+              width: scaledWidth,
+              height: scaledHeight,
+              rotate: degrees(rotationCCW)
+            };
+
+            // Adjust draw coordinates based on rotation quadrant to align visual box with centered dest rect
+            if (rotationCCW === 0) {
+              drawOptions.x = destX;
+              drawOptions.y = destY;
+            } else if (rotationCCW === 90) {
+              drawOptions.x = destX + scaledHeight;
+              drawOptions.y = destY;
+            } else if (rotationCCW === 180) {
+              drawOptions.x = destX + scaledWidth;
+              drawOptions.y = destY + scaledHeight;
+            } else if (rotationCCW === 270) {
+              drawOptions.x = destX;
+              drawOptions.y = destY + scaledWidth;
+            }
+
+            newPage.drawPage(embeddedPage, drawOptions);
+
+          } else {
+            // Standard merge (copy pages)
+            const [copiedPage] = await mergedPdf.copyPages(srcDoc, [page.pageIndex]);
+            // Add user rotation to existing page rotation
+            const currentRotation = copiedPage.getRotation().angle;
+            const newRotation = (currentRotation + page.rotation) % 360;
+            copiedPage.setRotation(degrees(newRotation));
+
+            mergedPdf.addPage(copiedPage);
           }
-          mergedPdf.addPage(copiedPage);
         }
         const pdfBytes = await mergedPdf.save();
         downloadPDF(pdfBytes, (outputFilenameInput.value || 'merged') + '.pdf');
@@ -564,4 +681,5 @@
     }
   </script>
 </body>
+
 </html>
