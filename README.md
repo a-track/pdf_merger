@@ -15,6 +15,8 @@ A modern, browser-based tool to combine, split, and organize PDF files. This app
   - Remove specific pages or whole files.
   - Reset sorting to the original file order.
 - **Merge & Download**: Combine your organized pages into a single PDF with a custom filename.
+  - **Unify Page Sizes**: Automatically resizes and centers all merged pages to match the dimensions of the first page.
+  - **Reduce Size**: Compresses the PDF pages to significantly reduce file size while maintaining readability. Includes a smart size-check to only apply compression if it results in a smaller file.
 - **Privacy Focused**: Built with security in mind, ensuring no data leakage.
 
 ## How to Use

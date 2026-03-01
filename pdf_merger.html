@@ -119,16 +119,27 @@
       <div
         class="sticky bottom-8 bg-white p-6 rounded-xl shadow-lg border border-slate-200 flex justify-between items-center z-20">
         <div class="flex items-center gap-6">
-          <div class="flex items-center gap-2">
-            <div class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" id="unify-pages-checkbox" class="sr-only peer" checked>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <div class="relative inline-flex items-center">
+              <input type="checkbox" id="unify-pages-checkbox" class="sr-only peer">
               <div
                 class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
               </div>
             </div>
-            <label for="unify-pages-checkbox"
-              class="text-sm font-medium text-slate-700 cursor-pointer select-none">Unify Page Sizes</label>
-          </div>
+            <span class="text-sm font-medium text-slate-700">Unify Page Sizes</span>
+          </label>
+          <div class="h-6 w-px bg-slate-200"></div>
+          <label class="flex items-center gap-2 cursor-pointer select-none"
+            title="Compress PDF to reduce file size. Quality may be slightly impacted.">
+            <div class="relative inline-flex items-center">
+              <input type="checkbox" id="reduce-size-checkbox" class="sr-only peer">
+              <div
+                class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600">
+              </div>
+            </div>
+            <span class="text-sm font-medium text-slate-700">Reduce Size</span>
+          </label>
+
           <div class="h-6 w-px bg-slate-200"></div>
           <div class="flex items-center gap-4">
             <label for="output-filename" class="font-medium text-slate-700">Filename:</label>
@@ -197,6 +208,7 @@
     const mergeBtn = document.getElementById('merge-btn');
     const outputFilenameInput = document.getElementById('output-filename');
     const unifyPagesCheckbox = document.getElementById('unify-pages-checkbox');
+    const reduceSizeCheckbox = document.getElementById('reduce-size-checkbox');
     const loader = document.getElementById('loader');
     const loaderText = document.getElementById('loader-text');
     const pageCountSpan = document.getElementById('page-count');
@@ -653,13 +665,98 @@
           }
         }
         const pdfBytes = await mergedPdf.save();
-        downloadPDF(pdfBytes, (outputFilenameInput.value || 'merged') + '.pdf');
+        const originalSize = pdfBytes.byteLength;
+
+        let finalBytes = pdfBytes;
+
+        if (reduceSizeCheckbox.checked) {
+          showLoader('Reducing PDF size... This might take a moment.');
+          await new Promise(resolve => setTimeout(resolve, 10)); // UI update tick
+
+          try {
+            const compressedBytes = await compressPDFBytes(pdfBytes);
+            if (compressedBytes.byteLength < originalSize) {
+              finalBytes = compressedBytes;
+              console.log(`Size reduced from ${(originalSize / 1024 / 1024).toFixed(2)} MB to ${(compressedBytes.byteLength / 1024 / 1024).toFixed(2)} MB`);
+            } else {
+              console.log(`Original size ${(originalSize / 1024 / 1024).toFixed(2)} MB is smaller than compressed ${(compressedBytes.byteLength / 1024 / 1024).toFixed(2)} MB. Keeping original.`);
+            }
+          } catch (compressErr) {
+            console.error('Error reducing size:', compressErr);
+            // Fallback to original if compression fails
+          }
+        }
+
+        showLoader('Preparing download...');
+        downloadPDF(finalBytes, (outputFilenameInput.value || 'merged') + '.pdf');
       } catch (error) {
         console.error('Merge error:', error);
         alert(`Failed to merge PDFs: ${error.message}\nSee console for more details.`);
       } finally {
         hideLoader();
       }
+    }
+
+    async function compressPDFBytes(pdfBytes) {
+      const { PDFDocument } = PDFLib;
+      const newPdf = await PDFDocument.create();
+
+      // Copy the array to prevent PDF.js worker from detaching the original ArrayBuffer
+      const loadingTask = pdfjsLib.getDocument({ data: pdfBytes.slice(0) });
+      const pdf = await loadingTask.promise;
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        showLoader(`Reducing PDF size... (Page ${i} of ${pdf.numPages})`);
+        await new Promise(resolve => setTimeout(resolve, 10)); // let UI update
+
+        const page = await pdf.getPage(i);
+
+        // Calculate a safe scale to avoid Out-Of-Memory freezing the browser tab
+        const baseViewport = page.getViewport({ scale: 1.0 });
+        const maxPixels = 5000000; // 5 Megapixel limit per page
+        const baseArea = baseViewport.width * baseViewport.height;
+        let scale = 3.0; // High quality target
+        if (baseArea * scale * scale > maxPixels) {
+          scale = Math.max(1.0, Math.sqrt(maxPixels / baseArea));
+        }
+
+        const viewport = page.getViewport({ scale: scale });
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+
+        await page.render({
+          canvasContext: context,
+          viewport: viewport
+        }).promise;
+
+        // Convert to JPEG directly as base64 string to avoid Blob/ArrayBuffer issues 
+        // that cause PDF corruption in some browsers with pdf-lib embedJpg
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85); // 0.85 quality for good balance
+        const base64Data = dataUrl.split(',')[1]; // Strip "data:image/jpeg;base64," prefix
+
+        const jpgImage = await newPdf.embedJpg(base64Data);
+        const pdfPage = newPdf.addPage([viewport.width / scale, viewport.height / scale]);
+
+        pdfPage.drawImage(jpgImage, {
+          x: 0,
+          y: 0,
+          width: viewport.width / scale,
+          height: viewport.height / scale,
+        });
+
+        // Explicitly clear memory to help Garbage Collector and prevent OOM
+        canvas.width = 0;
+        canvas.height = 0;
+        page.cleanup();
+      }
+
+      return await newPdf.save();
     }
 
     function downloadPDF(bytes, filename) {
